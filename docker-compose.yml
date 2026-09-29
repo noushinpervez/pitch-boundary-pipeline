@@ -1,14 +1,51 @@
 services:
   mock_api:
-    build: ./mock_api
+    build:
+      context: ./mock_api
     ports:
       - "5000:5000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >
+          import urllib.request;
+          urllib.request.urlopen(
+          "http://localhost:5000/api/v1/jobs/events"
+          )
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
-  # Add your own service here once you've built your solution, e.g.:
-  #
-  # runner:
-  #   build: .
-  #   depends_on:
-  #     - mock_api
-  #   environment:
-  #     - MOCK_API_URL=http://mock_api:5000
+  video_generator:
+    build:
+      context: .
+    command:
+      - python
+      - -c
+      - >
+        from synthetic_generator import generate_synthetic_video;
+        generate_synthetic_video("/data/synthetic_pitch_feed.mp4")
+    volumes:
+      - video_data:/data
+
+  runner:
+    build:
+      context: .
+    command:
+      - python
+      - run_pipeline.py
+      - --config
+      - /app/config.docker.json
+    volumes:
+      - video_data:/data
+    depends_on:
+      mock_api:
+        condition: service_healthy
+      video_generator:
+        condition: service_completed_successfully
+
+volumes:
+  video_data:
