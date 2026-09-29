@@ -1,0 +1,19 @@
+{
+  "video_path": "synthetic_pitch_feed.mp4",
+  "job_id": "demo-job",
+  "detector": {
+    "type": "white_line",
+    "min_area": 1000.0,
+    "white_threshold": 200,
+    "approx_epsilon_ratio": 0.02
+  },
+  "sampling": {
+    "max_samples": 120
+  },
+  "reporting": {
+    "base_url": "http://mock_api:5000",
+    "timeout_seconds": 2.0,
+    "max_attempts": 3,
+    "backoff_seconds": 0.2
+  }
+}

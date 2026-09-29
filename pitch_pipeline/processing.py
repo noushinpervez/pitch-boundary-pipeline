@@ -1,5 +1,6 @@
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
@@ -16,6 +17,15 @@ class Detection:
     frame_index: int
     polygon: Polygon
     clipped_area: float
+
+
+@dataclass(frozen=True)
+class ProcessingProgress:
+    processed_samples: int
+    total_samples: int
+    valid_detections: int
+    invalid_detections: int
+    decode_failures: int
 
 
 class VideoProcessingError(RuntimeError):
@@ -69,6 +79,7 @@ class VideoProcessor:
         detector: FieldDetector,
         max_samples: int,
         logger: logging.Logger | None = None,
+        on_progress: Callable[[ProcessingProgress], None] | None = None,
     ):
         if max_samples <= 0:
             raise ValueError("max_samples must be positive")
@@ -76,6 +87,7 @@ class VideoProcessor:
         self.detector = detector
         self.max_samples = max_samples
         self.logger = logger or logging.getLogger(__name__)
+        self.on_progress = on_progress
 
     def process(self, video_path: Path) -> ProcessingResult:
         start_time = time.perf_counter()
@@ -105,16 +117,45 @@ class VideoProcessor:
             invalid_detections = 0
             detections: list[Detection] = []
 
+            progress_interval = max(1, len(indices) // 10)
+
+            def emit_progress(force: bool = False) -> None:
+                processed_samples = (
+                    valid_detections + invalid_detections + decode_failures
+                )
+
+                if self.on_progress is None:
+                    return
+
+                if (
+                    force
+                    or processed_samples % progress_interval == 0
+                    or processed_samples == len(indices)
+                ):
+                    self.on_progress(
+                        ProcessingProgress(
+                            processed_samples=processed_samples,
+                            total_samples=len(indices),
+                            valid_detections=valid_detections,
+                            invalid_detections=invalid_detections,
+                            decode_failures=decode_failures,
+                        )
+                    )
+
+            emit_progress(force=True)
+
             for frame_index in indices:
                 if not cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index):
                     decode_failures += 1
                     self.logger.warning("Failed to seek to frame %d", frame_index)
+                    emit_progress()
                     continue
 
                 success, frame = cap.read()
                 if not success or frame is None:
                     decode_failures += 1
                     self.logger.warning("Failed to read frame %d", frame_index)
+                    emit_progress()
                     continue
 
                 decoded_frames += 1
@@ -127,6 +168,7 @@ class VideoProcessor:
                     or not isinstance(polygon, Polygon)
                 ):
                     invalid_detections += 1
+                    emit_progress()
                     continue
 
                 clipped = polygon.intersection(boundary)
@@ -138,6 +180,7 @@ class VideoProcessor:
                     or clipped.area <= 0
                 ):
                     invalid_detections += 1
+                    emit_progress()
                     continue
 
                 valid_detections += 1
@@ -148,6 +191,7 @@ class VideoProcessor:
                         clipped_area=clipped.area,
                     )
                 )
+                emit_progress()
 
             if not detections:
                 raise NoValidDetectionsError("No valid field detections found")
