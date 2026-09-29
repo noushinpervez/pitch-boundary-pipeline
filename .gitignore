@@ -6,3 +6,4 @@ venv/
 .idea/
 .vscode/
 .pytest_cache/
+config.local.json
